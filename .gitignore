@@ -18,3 +18,4 @@ crash.*.log
 # Scratch files from the lab
 body.json
 size.json
+*.bak
