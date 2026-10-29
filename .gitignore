@@ -1,0 +1,20 @@
+# Terraform state (contains secrets and resource details)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Provider plugins (large, re-downloaded by terraform init)
+.terraform/
+
+# Variable files with passwords
+terraform.tfvars
+*.auto.tfvars.json
+
+# Crash logs and plan files
+crash.log
+crash.*.log
+*.tfplan
+
+# Scratch files from the lab
+body.json
+size.json

@@ -1,0 +1,225 @@
+terraform { 
+  required_providers { 
+    aws = { 
+      source  = "hashicorp/aws" 
+      version = "~> 5.0" 
+    } 
+  } 
+} 
+  
+provider "aws" { 
+  region = var.aws_region 
+}
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+  filter {
+    name   = "default-for-az"
+    values = ["true"]
+  }
+}
+resource "aws_security_group" "source_vm" {
+  name        = "migrate-source-sg-${var.yourname}"
+  description = "Allow HTTPS and RDP for Azure Migrate lab"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "WinRM HTTP for Azure Migrate discovery"
+    from_port   = 5985
+    to_port     = 5985
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS for Azure Migrate appliance communication"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "RDP for admin access"
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "sg-migrate-source-${var.yourname}"
+  }
+}
+
+data "aws_iam_policy_document" "assume_role" { 
+  statement { 
+    effect = "Allow" 
+    principals { 
+      type        = "Service" 
+      identifiers = ["ec2.amazonaws.com"] 
+    } 
+    actions = ["sts:AssumeRole"] 
+  } 
+}
+data "aws_iam_policy_document" "migrate_permissions" { 
+  statement { 
+    effect = "Allow" 
+    actions = [ 
+      "ec2:DescribeInstances", 
+      "ec2:DescribeInstanceTypes", 
+      "ec2:DescribeVolumes", 
+      "ec2:DescribeSnapshots", 
+      "ec2:DescribeImages", 
+      "ec2:DescribeRegions", 
+      "ec2:CreateSnapshot", 
+      "ec2:DeleteSnapshot", 
+      "ec2:DescribeTags" 
+    ] 
+    resources = ["*"] 
+  } 
+} 
+  
+resource "aws_iam_role" "migrate_role" { 
+  name               = "role-azure-migrate-${var.yourname}" 
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json 
+  
+  tags = { 
+    project = "azure-migrate-lab" 
+  } 
+} 
+  
+resource "aws_iam_policy" "migrate_policy" { 
+  name   = "policy-azure-migrate-${var.yourname}" 
+  policy = data.aws_iam_policy_document.migrate_permissions.json 
+} 
+  
+resource "aws_iam_role_policy_attachment" "migrate_attach" { 
+  role       = aws_iam_role.migrate_role.name 
+  policy_arn = aws_iam_policy.migrate_policy.arn 
+} 
+  
+resource "aws_iam_instance_profile" "migrate_profile" { 
+  name = "profile-azure-migrate-${var.yourname}" 
+  role = aws_iam_role.migrate_role.name 
+}
+resource "aws_instance" "source_vm" { 
+  ami                    = var.windows_ami 
+  instance_type          = var.instance_type 
+  subnet_id              = data.aws_subnets.default.ids[0]
+  vpc_security_group_ids = [aws_security_group.source_vm.id] 
+  iam_instance_profile   = aws_iam_instance_profile.migrate_profile.name 
+  
+  root_block_device { 
+    volume_type = "gp3" 
+    volume_size = 30 
+    encrypted   = false 
+  } 
+  
+user_data = <<-EOF
+    <powershell> 
+    net user Administrator "${var.admin_password}" 
+    </powershell> 
+  EOF
+  
+  volume_tags = { 
+    Name    = "vol-migrate-source-${var.yourname}" 
+    project = "azure-migrate-lab" 
+  } 
+  
+  tags = { 
+    Name    = "ec2-migrate-source-${var.yourname}" 
+    project = "azure-migrate-lab" 
+  } 
+} 
+resource "aws_iam_user" "migrate_user" { 
+  name = "svc-azure-migrate-${var.yourname}" 
+  
+  tags = { 
+    project = "azure-migrate-lab" 
+  } 
+} 
+  
+resource "aws_iam_user_policy_attachment" "migrate_user_policy" { 
+  user       = aws_iam_user.migrate_user.name 
+  policy_arn = aws_iam_policy.migrate_policy.arn 
+} 
+  
+resource "aws_iam_access_key" "migrate_user_key" { 
+  user = aws_iam_user.migrate_user.name 
+}
+# ── Azure Migrate discovery appliance (runs in AWS instead of Azure) ──
+
+resource "aws_security_group" "appliance" {
+  name        = "migrate-appliance-sg-${var.yourname}"
+  description = "RDP to the Azure Migrate appliance"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "RDP for admin access"
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Allow all outbound (Azure endpoints, AWS source VM)"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "sg-migrate-appliance-${var.yourname}"
+    project = "azure-migrate-lab"
+  }
+}
+
+resource "aws_instance" "appliance" {
+  ami                    = var.windows_ami
+  instance_type          = var.appliance_instance_type
+  subnet_id              = data.aws_subnets.default.ids[0]
+  vpc_security_group_ids = [aws_security_group.appliance.id]
+
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = 80
+    encrypted   = false
+  }
+
+  user_data = <<-EOF
+    <powershell>
+    net user Administrator "${var.appliance_admin_password}"
+    </powershell>
+  EOF
+
+  tags = {
+    Name    = "ec2-migrate-appliance-${var.yourname}"
+    project = "azure-migrate-lab"
+  }
+}
+resource "aws_eip" "source" {
+  domain   = "vpc"
+  instance = aws_instance.source_vm.id
+
+  tags = {
+    Name    = "eip-migrate-source-${var.yourname}"
+    project = "azure-migrate-lab"
+  }
+}
