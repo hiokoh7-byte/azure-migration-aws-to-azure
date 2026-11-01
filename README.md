@@ -586,46 +586,47 @@ Repeat the NIC/public IP/NSG commands with name `pip-migrated-vm` on the migrate
 
 ## Screenshots
 
-*(Images go in the `/screenshots` folder in this repo. Send them over with a note on what each one shows, and they'll get embedded below with a proper takeaway for each.)*
+Ten screenshots covering the real build, start to finish, in the order things actually happened.
 
-Placeholder slots below, mapped to this lab's own verification checklist, so they're easy to match once sent:
+**1. Source EC2 instance running in AWS**
+![EC2 console showing ec2-migrate-source running, 3 of 3 status checks passed](./screenshots/01-source-ec2-running.png)
+> The source machine before any migration work starts: `ec2-migrate-source` on an `m7i-flex.large`, state **Running**, all 3/3 status checks passed. This is the baseline, everything after this screenshot is proving that this exact machine made it to Azure intact.
 
-**1. Source EC2 running in AWS**
-![Screenshot 1](./screenshots/01-placeholder.png)
-> *Takeaway: pending*
+**2. Discovery appliance installer running in AWS**
+![PowerShell output showing the Azure Migrate discovery appliance installer running on the AWS-side appliance VM](./screenshots/02-discovery-appliance-installer.png)
+> The installer explicitly reports **"This appliance is not running on an Azure VM. Skipping Azure VM prerequisites setup"**, confirming the discovery appliance is deployed inside AWS itself, in the same VPC as the source, not in Azure. It installs the Server Discovery, Server Assessment, SQL Discovery, and Web App Discovery services plus the Appliance Configuration Manager, exactly the agentless discovery design described in the architecture above.
 
-**2. Migrate project created, discovery appliance registered**
-![Screenshot 2](./screenshots/02-placeholder.png)
-> *Takeaway: pending*
+**3. Terraform deploys the Azure replication appliance**
+![Terraform apply output showing the replication appliance VM created, with outputs for the Key Vault, storage account, and resource groups](./screenshots/03-terraform-replication-appliance-deployed.png)
+> `terraform apply` finishing with **"Resources: 1 added, 0 changed, 0 destroyed"** for `vm-mig-repl-henry`, followed by every output needed for the rest of the lab: the migrate project name, the Recovery Services Vault, the replication storage account (`stmigratehenry26`), and both the source and target resource groups. This is the moment the heavy 8-core replication appliance actually exists in Azure.
 
-**3. Server discovered and assessed — Ready for Azure**
-![Screenshot 3](./screenshots/03-placeholder.png)
-> *Takeaway: pending*
+**4. Replication starting in the Azure Migrate portal**
+![Azure Migrate Migrations blade showing Starting server replication, Running, 0% inventory](./screenshots/04-replication-starting.png)
+> The exact moment replication is triggered from the portal: status **Running**, inventory at 0%, activity log confirming **"Starting server replication... The operation is in progress."** This is the handoff point between infrastructure setup and the actual data-copy phase.
 
-**4. Replication appliance Healthy in the MigrateVault**
-![Screenshot 4](./screenshots/04-placeholder.png)
-> *Takeaway: pending*
+**5. Replication in progress — Preparation stage**
+![Migration status table showing execution stage Preparation, status In progress, migration method Server Migration](./screenshots/05-replication-in-progress.png)
+> Mid-replication: execution stage **Preparation**, status **In progress**, migration method **Server Migration**, dated 10/28/2026. This is the stage where the Mobility agent is actively shipping disk changes from the source to the replication appliance's cache storage account.
 
-**5. Mobility agent registered, physical server added**
-![Screenshot 5](./screenshots/05-placeholder.png)
-> *Takeaway: pending*
+**6. Test migration triggered**
+![Toast notification: Starting test migration of EC2AMAZ-E6AN27D, operation in progress](./screenshots/06-test-migration-started.png)
+> Before committing to a real cutover, a test migration is kicked off to validate the replicated disk actually boots correctly in Azure, the safety check that catches problems before they become production downtime.
 
-**6. Initial replication complete — Testing stage**
-![Screenshot 6](./screenshots/06-placeholder.png)
-> *Takeaway: pending*
+**7. Test migration cleanup after validation**
+![Toast notification: Starting test migration cleanup for EC2AMAZ-E6AN27D, Running](./screenshots/07-test-migration-cleanup.png)
+> Once the test VM was confirmed working, Azure Migrate tears down the temporary test resources automatically. This cleanup step is what keeps a test migration from quietly leaving billable orphaned resources behind.
 
-**7. Test migration boot and RDP verification**
-![Screenshot 7](./screenshots/07-placeholder.png)
-> *Takeaway: pending*
+**8. Cutover complete — full migration status panel**
+![Migration status panel showing Failover completed, target VM size Standard_E2bs_v5, and an activity log with a full event history](./screenshots/08-cutover-complete-migration-status.png)
+> The definitive proof screenshot. **Migration status: Failover completed**, target resource group `rg-migrate-target-henry`, target VM size `Standard_E2bs_v5`, target VNet `vnet-migrate-henry`. The activity log on the right shows the full real history, including an earlier **failed** test migration attempt before the successful one, left visible rather than hidden, because troubleshooting a real failure and then succeeding is a more honest and more useful record than a run that happened to work the first time.
 
-**8. Cutover complete, migrated VM verified**
-![Screenshot 8](./screenshots/08-placeholder.png)
-> *Takeaway: pending*
+**9. RDP into the migrated VM — Windows Server 2022 confirmed**
+![RDP session into the migrated VM showing hostname EC2AMAZ-E6AN27D and the About Windows dialog confirming Windows Server 2022](./screenshots/09-migrated-vm-verified-rdp.png)
+> Logged directly into the post-cutover VM in Azure: `hostname` returns `EC2AMAZ-E6AN27D`, the same computer name the source EC2 instance had, and `winver` confirms **Windows Server 2022**. The hostname carrying over unchanged is the clearest possible evidence that this is the actual migrated machine, not a fresh VM standing in for it.
 
-**How to add these when ready:**
-1. Upload the actual images into this repo's `screenshots` folder, keeping these filenames or your own
-2. Send them over (in batches if needed, one message can't always hold them all) with a quick note on what each shows
-3. Each slot above gets updated with the real embed and a written takeaway explaining what it proves
+**10. Migrated VM's desktop still carrying leftover AWS metadata labels**
+![Desktop of the migrated Azure VM still displaying the AWS EC2Launch wallpaper template with Hostname, Instance ID, and IPv4 address labels](./screenshots/10-migrated-vm-desktop-aws-metadata.png)
+> A small but genuinely telling detail: the desktop wallpaper is still the AWS **EC2Launch** instance-info template, labeled Hostname, Instance ID, Private/Public IPv4, Availability Zone, and so on. The fields are blank because that AWS-specific agent has nothing to query now that the disk is running in Azure, but the template itself persisting is physical proof that this is the same OS disk that was replicated over, not a clean rebuild.
 
 ---
 
