@@ -1,5 +1,13 @@
 # AWS EC2 → Azure Migration Lab (Azure Migrate + Terraform)
 
+![AWS](https://img.shields.io/badge/AWS-EC2-FF9900?logo=amazonaws&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-Migrate-0078D4?logo=microsoftazure&logoColor=white)
+![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?logo=terraform&logoColor=white)
+![Difficulty](https://img.shields.io/badge/Difficulty-Advanced-red)
+
+## 🎥 Watch Me Live
+[Watch me build this lab live →](PASTE_YOUR_LINK_HERE)
+
 End-to-end migration of a Windows Server 2022 instance from **AWS EC2** to an **Azure VM** using **Azure Migrate** (discovery, assessment, agent-based replication, test migration, cutover), with infrastructure on both clouds provisioned by **Terraform**.
 
 > **Interview summary:** "I performed an end-to-end AWS-to-Azure server migration with Azure Migrate and Terraform — discovery, assessment, agent-based replication, test migration, and cutover — and resolved cross-cloud networking, quota, capacity, identity, and policy constraints that the original runbook didn't cover."
@@ -33,6 +41,11 @@ This README is a complete SOP. It reflects the **current (2026) Azure Migrate po
 
 ## Architecture
 
+![AWS to Azure migration architecture diagram showing the source EC2 instance and discovery appliance in AWS, the replication appliance in Azure Central US, and the migrated VM landing in an Azure East US 2 target resource group after cutover](./screenshots/migration-architecture-diagram.png)
+
+<details>
+<summary>Full ASCII architecture reference (exact resource names, IPs, and ports)</summary>
+
 ```
 AWS (us-east-2, default VPC 172.31.0.0/16)            Azure (pay-as-you-go subscription)
 ──────────────────────────────────────────           ─────────────────────────────────────────────────────
@@ -54,6 +67,8 @@ AWS (us-east-2, default VPC 172.31.0.0/16)            Azure (pay-as-you-go subsc
                                                            ├─ nsg-migrate-target-henry
                                                            └─ EC2AMAZ-XXXXXXX  ← MIGRATED VM (created at cutover)
 ```
+
+</details>
 
 ### Traffic flows
 
@@ -566,6 +581,51 @@ Repeat the NIC/public IP/NSG commands with name `pip-migrated-vm` on the migrate
 - [ ] Test migration boots; RDP works; cleaned up
 - [ ] Cutover complete; migrated VM verified
 - [ ] Everything torn down
+
+---
+
+## Screenshots
+
+*(Images go in the `/screenshots` folder in this repo. Send them over with a note on what each one shows, and they'll get embedded below with a proper takeaway for each.)*
+
+Placeholder slots below, mapped to this lab's own verification checklist, so they're easy to match once sent:
+
+**1. Source EC2 running in AWS**
+![Screenshot 1](./screenshots/01-placeholder.png)
+> *Takeaway: pending*
+
+**2. Migrate project created, discovery appliance registered**
+![Screenshot 2](./screenshots/02-placeholder.png)
+> *Takeaway: pending*
+
+**3. Server discovered and assessed — Ready for Azure**
+![Screenshot 3](./screenshots/03-placeholder.png)
+> *Takeaway: pending*
+
+**4. Replication appliance Healthy in the MigrateVault**
+![Screenshot 4](./screenshots/04-placeholder.png)
+> *Takeaway: pending*
+
+**5. Mobility agent registered, physical server added**
+![Screenshot 5](./screenshots/05-placeholder.png)
+> *Takeaway: pending*
+
+**6. Initial replication complete — Testing stage**
+![Screenshot 6](./screenshots/06-placeholder.png)
+> *Takeaway: pending*
+
+**7. Test migration boot and RDP verification**
+![Screenshot 7](./screenshots/07-placeholder.png)
+> *Takeaway: pending*
+
+**8. Cutover complete, migrated VM verified**
+![Screenshot 8](./screenshots/08-placeholder.png)
+> *Takeaway: pending*
+
+**How to add these when ready:**
+1. Upload the actual images into this repo's `screenshots` folder, keeping these filenames or your own
+2. Send them over (in batches if needed, one message can't always hold them all) with a quick note on what each shows
+3. Each slot above gets updated with the real embed and a written takeaway explaining what it proves
 
 ---
 
