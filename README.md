@@ -14,6 +14,19 @@ End-to-end migration of a Windows Server 2022 instance from **AWS EC2** to an **
 
 This README is a complete SOP. It reflects the **current (2026) Azure Migrate portal layout** (*Decide and plan* / *Execute → Migrations*) and documents every issue hit during the build, with fixes.
 
+### Results at a glance
+
+| Outcome | Detail |
+|---|---|
+| Migration status | **Failover completed** (cutover successful) |
+| Source → target | AWS EC2 `us-east-2` → Azure VM `East US 2` |
+| Migrated VM | `EC2AMAZ-E6AN27D`, `Standard_E2bs_v5`, Windows Server 2022 (hostname preserved) |
+| Test migration | Booted and verified via RDP in ~6 minutes, then cleaned up |
+| Infrastructure as code | Two Terraform roots (`aws-side`, `azure-side`), fully destroyed after the lab |
+| Issues resolved | 40+ errors across Terraform, AWS guardrails, Azure quota/capacity, identity, WinRM, and Site Recovery (see [Troubleshooting reference](#troubleshooting-reference)) |
+
+**Skills demonstrated:** Azure Migrate, Azure Site Recovery (agent-based replication), Terraform (AWS + AzureRM providers), AWS EC2/VPC/IAM/SCPs, Azure networking (VNets, NSGs, NAT IP), Azure quota and capacity management, Entra ID sign-in troubleshooting, Windows Server administration (WinRM, firewall, TrustedHosts), REST API troubleshooting with `az rest`, cost control and teardown.
+
 ---
 
 ## Table of contents
@@ -32,10 +45,12 @@ This README is a complete SOP. It reflects the **current (2026) Azure Migrate po
 12. [Part 6 — Mobility agent and physical server registration](#part-6--mobility-agent-and-physical-server-registration)
 13. [Part 7 — Enable replication](#part-7--enable-replication)
 14. [Part 8 — Test migration, cutover, and verification](#part-8--test-migration-cutover-and-verification)
-15. [Pausing and resuming](#pausing-and-resuming)
-16. [Teardown](#teardown)
-17. [Troubleshooting reference](#troubleshooting-reference)
-18. [Security notes](#security-notes)
+15. [Screenshots](#screenshots)
+16. [Pausing and resuming](#pausing-and-resuming)
+17. [Teardown](#teardown)
+18. [Troubleshooting reference](#troubleshooting-reference)
+19. [What I'd do differently in production](#what-id-do-differently-in-production)
+20. [Security notes](#security-notes)
 
 ---
 
@@ -59,13 +74,13 @@ AWS (us-east-2, default VPC 172.31.0.0/16)            Azure (pay-as-you-go subsc
         │ WinRM 5985 (private)                         East US 2  (TARGET REGION)
         │                                              ├─ rg-migrate-source-henry
  ec2-migrate-appliance-henry  ← DISCOVERY APPLIANCE    │   ├─ vnet-migrate-henry (10.1.0.0/16) / snet-migrate
-   Windows Server 2022, m7i-flex.large                 │   ├─ stmigrateXXXX (storage)
+   Windows Server 2022, m7i-flex.large                 │   ├─ stmigratehenry26 (storage)
    Private 172.31.46.21                                │   ├─ law-migrate-henry (Log Analytics)
    (stopped after assessment)                          │   ├─ migrate-project-henry  (created in portal)
-                                                       │   └─ migrate-project-henry-MigrateVault-NNNN (auto-created)
+                                                       │   └─ migrate-project-henry-MigrateVault-572421565 (auto-created)
                                                        └─ rg-migrate-target-henry
                                                            ├─ nsg-migrate-target-henry
-                                                           └─ EC2AMAZ-XXXXXXX  ← MIGRATED VM (created at cutover)
+                                                           └─ EC2AMAZ-E6AN27D  ← MIGRATED VM (Standard_E2bs_v5, created at cutover)
 ```
 
 </details>
@@ -696,6 +711,8 @@ Order matters.
 | `InvalidResourceReference ... both resources are in the same region` | Changed a VNet's region; Terraform created the NIC before the new subnet | `terraform apply -target="azurerm_subnet.<name>"`, then full apply |
 | `deleting Resource Group ... still contains Resources` | Azure Migrate created resources Terraform doesn't track | Set `prevent_deletion_if_contains_resources = false`, or `az group delete` |
 | `InUseNetworkSecurityGroupCannotBeDeleted` / `InUseSubnetCannotBeDeleted` | Migrated VM's NIC still attached | `az group delete -n rg-migrate-target-henry --yes`, then `terraform destroy` |
+| Every plan shows `vm_agent_platform_updates_enabled = true -> false` on the VM | Azure enables the setting by default; the provider resets it to match code | Harmless; apply it, or add it to `lifecycle { ignore_changes = [...] }` |
+| `git push` rejected (`fetch first`) on a new repo | GitHub repo was created with a README/license already in it | `git pull origin main --allow-unrelated-histories`, or `git push --force` on a brand-new repo only |
 | Plan shows "N to add" for resources that already exist | `terraform.tfstate` not in the working folder (e.g. left in CloudShell or a nested unzip folder) | Move the state file into the folder; plan should say "No changes" |
 
 ### AWS
@@ -756,7 +773,40 @@ Order matters.
 | `Azure needs to be relogged into` | Configuration manager session expired | Sign in again (device code), retry |
 | Test failover failed: `28075 core count limit ... standardMSFamily ... Attempted: 8` | Wizard auto-selected an M-series target size | Change target size to a quota-backed 2-vCPU size |
 | `UpdateVmProperties` failed: size not available / NVMe-only | Size restricted for subscription (even though `list-skus` said available) | Pick a size from the portal dropdown whose family has quota (here `Standard_E2bs_v5`, EBSv5) |
+| Discovery validation fails when using the appliance's own IP | Discovery source must be the **server being migrated**, not the appliance | Use the source's private IP (`terraform output ec2_private_ip`) |
+| Sizes you have quota for are missing from the replication size dropdown | The dropdown only lists sizes Site Recovery accepts for your subscription (capacity-restricted sizes are hidden) | Check each dropdown size's family with `az vm list-skus ... --query "[0].family"` and pick one with quota |
+| Physical server push-install of the Mobility agent would need SMB/WMI open from Azure to AWS | Push install requires inbound file-sharing and management ports on the source | Install the agent manually (Part 6) so the source only makes outbound 443/9443 connections |
+| A second, unused vault exists (`rsv-migrate-henry2`) | Azure Migrate always creates and uses its own `MigrateVault` | Leave it (destroyed with the RG) or remove it from Terraform |
 | `az` JMESPath query error in PowerShell (`].name was unexpected`) | PowerShell/`az.cmd` quoting of `[?contains(...)]` | Use simple queries and filter with `Select-String` |
+
+---
+
+## What I'd do differently in production
+
+This was a lab built under free-tier, student, and new-subscription constraints. In a production migration I would change the following:
+
+**Networking and access**
+- Replace public endpoints with **private connectivity** between clouds (site-to-site VPN or ExpressRoute/Direct Connect), so replication and WinRM never cross the public internet.
+- No RDP open to `0.0.0.0/0`. Use **Azure Bastion** on the Azure side and **AWS Systems Manager Session Manager** on the AWS side.
+- Scope every NSG/security group rule to known sources, and use **Azure Policy** and AWS SCPs to enforce it.
+
+**Terraform and delivery**
+- **Remote state with locking** (Azure Storage backend, or S3 + DynamoDB) instead of local state files.
+- Split the code into **reusable modules** (network, appliance, target) with environment-specific variables.
+- Run `plan` on pull requests and `apply` after review through a **CI/CD pipeline** (GitHub Actions or Azure DevOps).
+- Remove the `prevent_deletion_if_contains_resources = false` lab shortcut.
+
+**Identity and secrets**
+- Store passwords and keys in **Azure Key Vault / AWS Secrets Manager**, never in `terraform.tfvars`.
+- Run Terraform as a **least-privilege identity** (service principal / workload identity, scoped IAM role) instead of a broad-permission user.
+
+**Migration process**
+- Collect **2–4 weeks of performance data** before sizing, so assessments have high confidence.
+- Use **dependency mapping** and migrate in **waves** of related servers.
+- **Request quota and confirm VM size availability in advance** for every target family.
+- **Shut down the source at cutover**, with a documented **rollback plan**, DNS cutover, and a maintenance window.
+- Set up **monitoring, backup, and tagging/cost management** on the migrated VMs from day one.
+- Automate the appliance build (golden image or configuration scripts) so it isn't a manual RDP process.
 
 ---
 
