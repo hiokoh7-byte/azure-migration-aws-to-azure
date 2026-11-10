@@ -102,7 +102,7 @@ AWS (us-east-2, default VPC 172.31.0.0/16)            Azure (pay-as-you-go subsc
 
 ---
 
-## How this differs from the original lab guide
+## How this differs from the original plan
 
 | Original guide | Reality / this repo |
 |---|---|
